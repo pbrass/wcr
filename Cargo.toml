@@ -8,3 +8,7 @@ authors = ["Phil Brass <pbrass@gmail.com>"]
 anyhow = "*"
 clap = { version = "4", features = ["derive"] }
 unicode-segmentation = "1"
+predicates = "*"
+assert_cmd="*"
+rand = "0"
+pretty_assertions = "*"
