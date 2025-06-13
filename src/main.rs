@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 use std::fs::File;
-use std::fs;
 use std::io::{self, BufRead, BufReader};
 use unicode_segmentation::UnicodeSegmentation;
+use std::ops::Add;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -41,40 +41,67 @@ fn open(filename: &str) -> Result<Box<dyn BufRead>> {
     }
 }
 
-//does wc count line terminators in its character counts?
-//it does in byte-count mode
-//how can we tell the number of *characters* in a string
 
-fn run(_args: Args) -> Result<()> {
-    let mut totalbytes: usize = 0;
-    let mut totalchars: usize = 0;
-    let mut totalgraphemes: usize = 0;
-    let mut totallines: usize = 0;
-    let mut totalwords: usize = 0;
-    let mut pbytes: bool = _args.print_bytes;
-    let pgraphemes: bool = _args.print_graphemes;
-    let mut pwords: bool = _args.print_words;
-    let mut plines: bool = _args.print_lines;
-    let pchars: bool = _args.print_chars;
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct FileCounts {
+    bytes: usize,
+    chars: usize,
+    graphemes: usize,
+    words: usize,
+    lines: usize,
+}
+
+// Making it quicker to add the file counts into the total count, I guess.
+impl Add for FileCounts {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            bytes: self.bytes + rhs.bytes,
+            chars: self.chars + rhs.chars,
+            graphemes: self.graphemes + rhs.graphemes,
+            words: self.words + rhs.words,
+            lines: self.lines + rhs.lines,
+        }
+    }
+}
+
+// Get all the counts for a single buffer thingy
+fn count(mut file: impl BufRead) -> Result<FileCounts> {
+    let mut count = FileCounts{ bytes: 0, chars: 0, graphemes: 0, words: 0, lines: 0 };
+    let mut line = String::new();
+    loop {
+        let line_bytes = file.read_line(&mut line)?;
+        if line_bytes == 0 { break;}
+        count.lines += 1;
+        count.bytes += line_bytes;
+        count.graphemes += line.graphemes(true).count();
+        count.chars = line.chars().count();
+        count.words = line.split_whitespace().count();
+    }
+    Ok(count)
+}
+
+// run the program against the arguments - loop through the filenames, open the files, and count them
+fn run(mut _args: Args) -> Result<()> {
+    let mut totals = FileCounts{bytes: 0, chars: 0, graphemes: 0, words: 0, lines: 0 };
+    
     // if there are no flags, then we want lines, words and bytes
     if !(_args.print_bytes || _args.print_graphemes || _args.print_chars || _args.print_words || _args.print_lines)
     {
-        pbytes = true;
-        plines = true;
-        pwords = true;
+        _args.print_bytes = true;
+        _args.print_lines = true;
+        _args.print_words = true;
     }
     let filecount = _args.files.len();
     for filename in _args.files {
         //stats for the current file
-        let mut filebytes: usize = 0;
-        let mut filechars: usize = 0;
-        let mut filegraphemes: usize = 0;
-        let mut filewords: usize = 0;
-        let mut filelines: usize = 0;
-        
+
         match open(&filename) {
             Err(err) => eprintln!("Failed to open {filename}: {err}"),
             Ok(h_file) => {
+                let fcounts = count(h_file)?;
+                totals = totals + fcounts;
+                /*
                 for line in h_file.lines() {
                     match line {
                         Ok(ln) => {
@@ -115,29 +142,24 @@ fn run(_args: Args) -> Result<()> {
                     }
                 }
                 
-                // so if we're not reading from stdin, rather than using the number of bytes
-                // in each line, we can just get the file metadata 
-                if filename != "-" {
-                    let fname = filename.clone(); // thanks, borrow-checker
-                    filebytes = fs::metadata(fname)?.len() as usize;
-                    totalbytes += filebytes;
-                }
-                if plines {print!("{filelines:>8}")}
-                if pwords {print!("{filewords:>8}")}
-                if pbytes {print!("{filebytes:>8}")}
-                if pgraphemes {print!("{filegraphemes:>8}")}
-                if pchars {print!("{filechars:>8}")}
+                 */
+                
+                if _args.print_lines {print!("{:>8}",fcounts.lines)}
+                if _args.print_words {print!("{:>8}",fcounts.words)}
+                if _args.print_bytes {print!("{:>8}",fcounts.bytes)}
+                if _args.print_graphemes {print!("{:>8}",fcounts.graphemes)}
+                if _args.print_chars {print!("{:>8}",fcounts.chars)}
                 if filename != "-" {print!(" {filename}")}
                 print!("\n");
             }
         }
     }
     if filecount > 1 {
-        if plines {print!("{totallines:>8}")}
-        if pwords {print!("{totalwords:>8}")}
-        if pbytes {print!("{totalbytes:>8}")}
-        if pgraphemes {print!("{totalgraphemes:>8}")}
-        if pchars {print!("{totalchars:>8}")}
+        if _args.print_lines {print!("{:>8}",totals.lines)}
+        if _args.print_words {print!("{:>8}",totals.words)}
+        if _args.print_bytes {print!("{:>8}",totals.bytes)}
+        if _args.print_graphemes {print!("{:>8}",totals.graphemes)}
+        if _args.print_chars {print!("{:>8}",totals.chars)}
         print!(" total\n");
     }
     Ok(())

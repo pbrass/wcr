@@ -13,7 +13,7 @@ const ATLAMAL: &str = "tests/inputs/atlamal.txt";
 // --------------------------------------------------
 fn gen_bad_file() -> String {
     loop {
-        let filename = rand::thread_rng()
+        let filename = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(7)
             .map(char::from)
