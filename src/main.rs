@@ -25,13 +25,21 @@ struct Args {
     #[arg(short('g'), long("graphemes"), conflicts_with("print_chars"), conflicts_with("print_bytes"))]
     print_graphemes: bool,
 
-    /// print the newline counts
+    /// print the line counts
     #[arg(short('l'), long("lines"))]
     print_lines: bool,
 
     /// print the word counts
-    #[arg(short('w'), long("words"))]
+    #[arg(short('w'), long("words"), conflicts_with("print_unicode_words"), conflicts_with("print_unicode_bounds"))]
     print_words: bool,
+
+    /// print the unicode word counts
+    #[arg(short('u'), long("unicode_words"), conflicts_with("print_words"),conflicts_with("print_unicode_bounds"))]
+    print_unicode_words: bool,
+
+    /// print the unicode word bounds count
+    #[arg(short('b'), long("unicode_bounds"), conflicts_with("print_words"),conflicts_with("print_unicode_words"))]
+    print_unicode_bounds: bool,
 }
 
 fn open(filename: &str) -> Result<Box<dyn BufRead>> {
@@ -42,12 +50,14 @@ fn open(filename: &str) -> Result<Box<dyn BufRead>> {
 }
 
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
 struct FileCounts {
     bytes: usize,
     chars: usize,
     graphemes: usize,
     words: usize,
+    unicode_words: usize,
+    unicode_bounds: usize,
     lines: usize,
 }
 
@@ -60,6 +70,8 @@ impl Add for FileCounts {
             chars: self.chars + rhs.chars,
             graphemes: self.graphemes + rhs.graphemes,
             words: self.words + rhs.words,
+            unicode_words: self.unicode_words + rhs.unicode_words,
+            unicode_bounds: self.unicode_bounds + rhs.unicode_bounds,
             lines: self.lines + rhs.lines,
         }
     }
@@ -67,7 +79,7 @@ impl Add for FileCounts {
 
 // Get all the counts for a single buffer thingy
 fn count(mut file: impl BufRead) -> Result<FileCounts> {
-    let mut count = FileCounts{ bytes: 0, chars: 0, graphemes: 0, words: 0, lines: 0 };
+    let mut count = FileCounts::default();
     let mut line = String::new();
     loop {
         let line_bytes = file.read_line(&mut line)?;
@@ -75,8 +87,11 @@ fn count(mut file: impl BufRead) -> Result<FileCounts> {
         count.lines += 1;
         count.bytes += line_bytes;
         count.graphemes += line.graphemes(true).count();
-        count.chars = line.chars().count();
-        count.words = line.split_whitespace().count();
+        count.chars += line.chars().count();
+        count.words += line.split_whitespace().count();
+        count.unicode_words += line.unicode_words().count();
+        count.unicode_bounds += line.split_word_bounds().count();
+        line.clear();
     }
     Ok(count)
 }
@@ -84,6 +99,8 @@ fn count(mut file: impl BufRead) -> Result<FileCounts> {
 fn printcounts(_args: &Args, fcounts: FileCounts, filename: String)  {
     if _args.print_lines {print!("{:>8}",fcounts.lines)}
     if _args.print_words {print!("{:>8}",fcounts.words)}
+    if _args.print_unicode_words {print!("{:>8}",fcounts.unicode_words)}
+    if _args.print_unicode_bounds {print!("{:>8}",fcounts.unicode_bounds)}
     if _args.print_bytes {print!("{:>8}",fcounts.bytes)}
     if _args.print_graphemes {print!("{:>8}",fcounts.graphemes)}
     if _args.print_chars {print!("{:>8}",fcounts.chars)}
@@ -93,10 +110,11 @@ fn printcounts(_args: &Args, fcounts: FileCounts, filename: String)  {
 
 // run the program against the arguments - loop through the filenames, open the files, and count them
 fn run(mut _args: Args) -> Result<()> {
-    let mut totals = FileCounts{bytes: 0, chars: 0, graphemes: 0, words: 0, lines: 0 };
+    let mut totals = FileCounts::default();
     
     // if there are no flags, then we want lines, words and bytes
-    if !(_args.print_bytes || _args.print_graphemes || _args.print_chars || _args.print_words || _args.print_lines)
+    if !(_args.print_bytes || _args.print_graphemes || _args.print_chars || _args.print_words
+        || _args.print_lines || _args.print_unicode_words || _args.print_unicode_bounds)
     {
         _args.print_bytes = true;
         _args.print_lines = true;
@@ -105,14 +123,12 @@ fn run(mut _args: Args) -> Result<()> {
     let filecount = _args.files.len();
     let names = _args.files.clone();
     for filename in names {
-        //stats for the current file
-
         match open(&filename) {
             Err(err) => eprintln!("Failed to open {filename}: {err}"),
             Ok(h_file) => {
                 let fcounts = count(h_file)?;
-                totals = totals + fcounts;
                 printcounts(&_args, fcounts, filename);
+                totals = totals + fcounts;
             }
         }
     }
